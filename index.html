@@ -435,7 +435,7 @@
             });
         };
 
-        // --- List Rendering Function ---
+        // --- List Rendering Function (UPDATED with Delete Buttons) ---
         const renderLists = () => {
             // Helper for list item visual
             const listClasses = "p-3 rounded-lg flex justify-between items-center transition duration-200 hover:shadow-md border";
@@ -457,7 +457,10 @@
                                 <p class="text-xs text-gray-500">${exp.location} | ${exp.date}</p>
                             </div>
                         </div>
-                        <span class="font-bold text-rose-600 text-sm">- ${formatCurrency(exp.amount)}</span>
+                        <div class="flex items-center">
+                            <span class="font-bold text-rose-600 text-sm">- ${formatCurrency(exp.amount)}</span>
+                            <button onclick="deleteTransaction('expense', '${exp.id}')" class="text-gray-400 hover:text-rose-600 ml-3 transition p-1 rounded-full hover:bg-rose-50"><i class="ph-trash-simple text-lg"></i></button>
+                        </div>
                     </div>
                 `;
             });
@@ -481,7 +484,10 @@
                                 <p class="text-xs text-gray-500">${inc.source} | ${inc.date} (${sourceTypeLabel})</p>
                             </div>
                         </div>
-                        <span class="font-bold text-teal-600 text-sm">+ ${formatCurrency(inc.amount)}</span>
+                        <div class="flex items-center">
+                            <span class="font-bold text-teal-600 text-sm">+ ${formatCurrency(inc.amount)}</span>
+                            <button onclick="deleteTransaction('income', '${inc.id}')" class="text-gray-400 hover:text-rose-600 ml-3 transition p-1 rounded-full hover:bg-rose-50"><i class="ph-trash-simple text-lg"></i></button>
+                        </div>
                     </div>
                 `;
             });
@@ -497,7 +503,10 @@
                             <p class="font-semibold text-gray-800">${d.name} <span class="text-teal-600 font-bold ml-1 text-base">${formatCurrency(d.amount)}</span></p>
                             <p class="text-xs text-gray-600">${d.remark} (${d.date})</p>
                         </div>
-                        <button onclick="showRepaymentModal('${d.id}')" class="bg-teal-500 text-white text-xs px-3 py-1.5 rounded-full hover:bg-teal-600 font-medium transition mt-2 sm:mt-0 shadow-sm">Repaid</button>
+                        <div class="flex space-x-2 mt-2 sm:mt-0">
+                            <button onclick="showRepaymentModal('${d.id}')" class="bg-teal-500 text-white text-xs px-3 py-1.5 rounded-full hover:bg-teal-600 font-medium transition shadow-sm">Repaid</button>
+                            <button onclick="deleteTransaction('lent', '${d.id}')" class="bg-rose-500 text-white text-xs px-3 py-1.5 rounded-full hover:bg-rose-600 font-medium transition shadow-sm">Delete</button>
+                        </div>
                     </div>
                 `;
             });
@@ -514,12 +523,78 @@
                             <p class="font-semibold text-gray-800">${d.name} <span class="text-rose-600 font-bold ml-1 text-base">${formatCurrency(d.amount)}</span></p>
                             <p class="text-xs text-gray-600">${d.remark} (${d.date})</p>
                         </div>
-                        <button onclick="markBorrowedRepaid('${d.id}')" class="bg-indigo-500 text-white text-xs px-3 py-1.5 rounded-full hover:bg-indigo-600 font-medium transition mt-2 sm:mt-0 shadow-sm">Repay</button>
+                        <div class="flex space-x-2 mt-2 sm:mt-0">
+                            <button onclick="markBorrowedRepaid('${d.id}')" class="bg-indigo-500 text-white text-xs px-3 py-1.5 rounded-full hover:bg-indigo-600 font-medium transition shadow-sm">Repay</button>
+                            <button onclick="deleteTransaction('borrowed', '${d.id}')" class="bg-rose-500 text-white text-xs px-3 py-1.5 rounded-full hover:bg-rose-600 font-medium transition shadow-sm">Delete</button>
+                        </div>
                     </div>
                 `;
             });
             if (borrowedList.innerHTML === '') borrowedList.innerHTML = '<p class="text-sm text-gray-500">All payables have been settled.</p>';
         };
+
+
+        // --- DELETE TRANSACTION LOGIC (NEW) ---
+        const deleteTransaction = (listType, itemId) => {
+            let list, item, amount;
+            
+            // Note: We only allow deletion of outstanding debt items currently displayed.
+            if (listType === 'lent' || listType === 'borrowed') {
+                item = state[listType].find(i => i.id === itemId && i.status === 'outstanding');
+                if (!item) {
+                    showTemporaryMessage(`Cannot delete: This debt is not outstanding.`, "error");
+                    return;
+                }
+            } else {
+                item = state[listType].find(i => i.id === itemId);
+            }
+            
+            if (!item) {
+                showTemporaryMessage(`Item not found for deletion.`, "error");
+                return;
+            }
+
+            amount = parseFloat(item.amount);
+            
+            // 1. Reverse the effect on the balance
+            switch (listType) {
+                case 'income':
+                    // Income increased balance, so we subtract it.
+                    if (item.sourceType === 'cash') {
+                        state.cashBalance -= amount;
+                    } else {
+                        state.bankBalance -= amount;
+                    }
+                    break;
+
+                case 'expense':
+                    // Expense decreased balance, so we add it back.
+                    if (item.sourceType === 'cash') {
+                        state.cashBalance += amount;
+                    } else {
+                        state.bankBalance += amount;
+                    }
+                    break;
+
+                case 'lent':
+                    // Lending money decreased cash (as per original logic), so we add it back.
+                    state.cashBalance += amount;
+                    break;
+
+                case 'borrowed':
+                    // Borrowing money increased cash (as per original logic), so we subtract it.
+                    state.cashBalance -= amount;
+                    break;
+            }
+
+            // 2. Filter out the item from its list
+            state[listType] = state[listType].filter(i => i.id !== itemId);
+            
+            // 3. Save state and notify user
+            saveState();
+            showTemporaryMessage(`Record deleted and balances reversed successfully!`, "success");
+        };
+
 
         // --- Form Handling Functions ---
 
